@@ -70,7 +70,7 @@ VirusTotal detections can increase the final score when security engines classif
 Clone the repository and enter the project directory:
 
 ```bash
-git clone YOUR_REPOSITORY_URL
+git clone https://github.com/Cyb3rgh/phishing-url-analyzer.git
 cd phishing-url-analyzer
 ```
 
