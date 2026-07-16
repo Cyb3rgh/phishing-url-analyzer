@@ -2,31 +2,67 @@
 
 import { FormEvent, useState } from "react";
 
+type VirusTotalStats = {
+  harmless: number;
+  malicious: number;
+  suspicious: number;
+  undetected: number;
+  timeout: number;
+};
+
+type VirusTotalResult = {
+  found: boolean;
+  message?: string;
+  stats?: VirusTotalStats;
+  reputation?: number;
+  categories?: Record<string, string>;
+  title?: string | null;
+  lastAnalysisDate?: string | null;
+  error?: string;
+};
+
 type AnalysisResult = {
   normalizedUrl: string;
   domain: string;
   score: number;
   level: "Low Risk" | "Suspicious" | "High Risk";
   findings: string[];
+  virusTotal: VirusTotalResult | null;
+  virusTotalError: string;
 };
+
+function getRiskLevel(
+  score: number
+): "Low Risk" | "Suspicious" | "High Risk" {
+  if (score >= 60) return "High Risk";
+  if (score >= 25) return "Suspicious";
+  return "Low Risk";
+}
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function analyzeUrl(event: FormEvent<HTMLFormElement>) {
+  async function analyzeUrl(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setResult(null);
+    setLoading(true);
 
     try {
-      const normalizedInput = url.startsWith("http://") ||
-        url.startsWith("https://")
-        ? url
-        : `https://${url}`;
+      const normalizedInput =
+        url.startsWith("http://") || url.startsWith("https://")
+          ? url.trim()
+          : `https://${url.trim()}`;
 
       const parsedUrl = new URL(normalizedInput);
+
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+        throw new Error("Unsupported protocol");
+      }
+
       const domain = parsedUrl.hostname.toLowerCase();
       const findings: string[] = [];
       let score = 0;
@@ -48,7 +84,7 @@ export default function Home() {
 
       if (domain.includes("xn--")) {
         score += 25;
-        findings.push("Contains an internationalized domain encoding");
+        findings.push("Contains internationalized domain encoding");
       }
 
       if (normalizedInput.length > 100) {
@@ -80,9 +116,7 @@ export default function Home() {
         );
       }
 
-      const domainParts = domain.split(".");
-
-      if (domainParts.length > 4) {
+      if (domain.split(".").length > 4) {
         score += 15;
         findings.push("Contains an unusually high number of subdomains");
       }
@@ -103,12 +137,59 @@ export default function Home() {
 
       score = Math.min(score, 100);
 
-      let level: AnalysisResult["level"] = "Low Risk";
+      let virusTotal: VirusTotalResult | null = null;
+      let virusTotalError = "";
 
-      if (score >= 60) {
-        level = "High Risk";
-      } else if (score >= 25) {
-        level = "Suspicious";
+      try {
+        const response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url: normalizedInput }),
+        });
+
+        const data = (await response.json()) as VirusTotalResult;
+
+        if (!response.ok) {
+          throw new Error(data.error || "Threat-intelligence lookup failed");
+        }
+
+        virusTotal = data;
+
+        if (data.found && data.stats) {
+          const { malicious, suspicious } = data.stats;
+          let intelligenceScore = 0;
+
+          if (malicious >= 5) {
+            intelligenceScore = 100;
+          } else if (malicious >= 2) {
+            intelligenceScore = 85;
+          } else if (malicious === 1) {
+            intelligenceScore = 65;
+          } else if (suspicious > 0) {
+            intelligenceScore = 45;
+          }
+
+          score = Math.max(score, intelligenceScore);
+
+          if (malicious > 0) {
+            findings.push(
+              `VirusTotal: ${malicious} security engines marked this URL malicious`
+            );
+          }
+
+          if (suspicious > 0) {
+            findings.push(
+              `VirusTotal: ${suspicious} security engines marked this URL suspicious`
+            );
+          }
+        }
+      } catch (threatError) {
+        virusTotalError =
+          threatError instanceof Error
+            ? threatError.message
+            : "Threat-intelligence lookup failed";
       }
 
       if (findings.length === 0) {
@@ -119,11 +200,15 @@ export default function Home() {
         normalizedUrl: normalizedInput,
         domain,
         score,
-        level,
+        level: getRiskLevel(score),
         findings,
+        virusTotal,
+        virusTotalError,
       });
     } catch {
-      setError("Enter a valid URL or domain, such as example.com");
+      setError("Enter a valid HTTP or HTTPS URL, such as example.com");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -141,6 +226,10 @@ export default function Home() {
         ? "bg-amber-500"
         : "bg-emerald-500";
 
+  const categories = result?.virusTotal?.categories
+    ? [...new Set(Object.values(result.virusTotal.categories))].slice(0, 4)
+    : [];
+
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
       <div className="mx-auto max-w-5xl">
@@ -155,8 +244,8 @@ export default function Home() {
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-slate-400">
-            Inspect suspicious links and identify common phishing indicators
-            without opening the destination.
+            Inspect suspicious links using structural analysis and live
+            VirusTotal threat intelligence without opening the destination.
           </p>
         </header>
 
@@ -181,9 +270,10 @@ export default function Home() {
 
               <button
                 type="submit"
-                className="rounded-xl bg-cyan-500 px-7 py-4 font-semibold text-slate-950 transition hover:bg-cyan-400"
+                disabled={loading}
+                className="rounded-xl bg-cyan-500 px-7 py-4 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Analyze URL
+                {loading ? "Analyzing..." : "Analyze URL"}
               </button>
             </div>
 
@@ -194,7 +284,7 @@ export default function Home() {
             {[
               ["Static Inspection", "Does not open the submitted link"],
               ["Risk Scoring", "Evaluates structural URL indicators"],
-              ["Threat Intelligence", "VirusTotal integration coming next"],
+              ["Threat Intelligence", "Checks existing VirusTotal reports"],
             ].map(([title, description]) => (
               <div
                 key={title}
@@ -208,64 +298,182 @@ export default function Home() {
         </section>
 
         {result && (
-          <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-10">
-            <div className="flex flex-col justify-between gap-5 md:flex-row">
-              <div>
-                <p className="text-sm text-slate-500">Analysis result</p>
-                <h2 className={`mt-1 text-3xl font-bold ${riskColor}`}>
-                  {result.level}
-                </h2>
+          <>
+            <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-10">
+              <div className="flex flex-col justify-between gap-5 md:flex-row">
+                <div>
+                  <p className="text-sm text-slate-500">Combined assessment</p>
+                  <h2 className={`mt-1 text-3xl font-bold ${riskColor}`}>
+                    {result.level}
+                  </h2>
+                </div>
+
+                <div className="md:text-right">
+                  <p className="text-sm text-slate-500">Risk score</p>
+                  <p className="mt-1 text-3xl font-bold">
+                    {result.score}/100
+                  </p>
+                </div>
               </div>
 
-              <div className="md:text-right">
-                <p className="text-sm text-slate-500">Risk score</p>
-                <p className="mt-1 text-3xl font-bold">{result.score}/100</p>
-              </div>
-            </div>
-
-            <div className="mt-6 h-3 overflow-hidden rounded-full bg-slate-800">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${riskBar}`}
-                style={{ width: `${Math.max(result.score, 3)}%` }}
-              />
-            </div>
-
-            <div className="mt-8 grid gap-6 md:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
-                <p className="text-sm text-slate-500">Resolved domain</p>
-                <p className="mt-2 break-all font-mono text-cyan-300">
-                  {result.domain}
-                </p>
+              <div className="mt-6 h-3 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${riskBar}`}
+                  style={{ width: `${Math.max(result.score, 3)}%` }}
+                />
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
-                <p className="text-sm text-slate-500">Normalized URL</p>
-                <p className="mt-2 break-all font-mono text-slate-300">
-                  {result.normalizedUrl}
-                </p>
+              <div className="mt-8 grid gap-6 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+                  <p className="text-sm text-slate-500">Resolved domain</p>
+                  <p className="mt-2 break-all font-mono text-cyan-300">
+                    {result.domain}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+                  <p className="text-sm text-slate-500">Normalized URL</p>
+                  <p className="mt-2 break-all font-mono text-slate-300">
+                    {result.normalizedUrl}
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="mt-6">
-              <h3 className="font-semibold">Detected indicators</h3>
+              <div className="mt-6">
+                <h3 className="font-semibold">Detected indicators</h3>
 
-              <div className="mt-3 space-y-3">
-                {result.findings.map((finding) => (
-                  <div
-                    key={finding}
-                    className="flex gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300"
-                  >
-                    <span className="text-cyan-400">●</span>
-                    <span>{finding}</span>
+                <div className="mt-3 space-y-3">
+                  {result.findings.map((finding) => (
+                    <div
+                      key={finding}
+                      className="flex gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300"
+                    >
+                      <span className="text-cyan-400">●</span>
+                      <span>{finding}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-10">
+              <div className="flex flex-col justify-between gap-2 md:flex-row">
+                <div>
+                  <p className="text-sm text-cyan-400">
+                    Live threat intelligence
+                  </p>
+                  <h2 className="mt-1 text-2xl font-bold">
+                    VirusTotal Reputation
+                  </h2>
+                </div>
+
+                {result.virusTotal?.title && (
+                  <p className="text-sm text-slate-400">
+                    {result.virusTotal.title}
+                  </p>
+                )}
+              </div>
+
+              {result.virusTotalError && (
+                <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
+                  {result.virusTotalError}
+                </div>
+              )}
+
+              {result.virusTotal &&
+                !result.virusTotal.found &&
+                !result.virusTotalError && (
+                  <div className="mt-6 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+                    {result.virusTotal.message}
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
+                )}
+
+              {result.virusTotal?.found && result.virusTotal.stats && (
+                <>
+                  <div className="mt-7 grid grid-cols-2 gap-4 md:grid-cols-4">
+                    {[
+                      [
+                        "Harmless",
+                        result.virusTotal.stats.harmless,
+                        "text-emerald-400",
+                      ],
+                      [
+                        "Malicious",
+                        result.virusTotal.stats.malicious,
+                        "text-red-400",
+                      ],
+                      [
+                        "Suspicious",
+                        result.virusTotal.stats.suspicious,
+                        "text-amber-400",
+                      ],
+                      [
+                        "Undetected",
+                        result.virusTotal.stats.undetected,
+                        "text-slate-300",
+                      ],
+                    ].map(([label, value, color]) => (
+                      <div
+                        key={String(label)}
+                        className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-center"
+                      >
+                        <p className={`text-3xl font-bold ${color}`}>
+                          {value}
+                        </p>
+                        <p className="mt-2 text-sm text-slate-500">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+                      <p className="text-sm text-slate-500">
+                        Community reputation
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-cyan-300">
+                        {result.virusTotal.reputation ?? 0}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+                      <p className="text-sm text-slate-500">Last analysis</p>
+                      <p className="mt-2 text-sm text-slate-300">
+                        {result.virusTotal.lastAnalysisDate
+                          ? new Date(
+                              result.virusTotal.lastAnalysisDate
+                            ).toLocaleString()
+                          : "Not available"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {categories.length > 0 && (
+                    <div className="mt-6">
+                      <p className="text-sm text-slate-500">Categories</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {categories.map((category) => (
+                          <span
+                            key={category}
+                            className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-300"
+                          >
+                            {category}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          </>
         )}
 
         <footer className="mt-10 text-center text-sm text-slate-600">
           Built by Fayyad Dahweesh · Defensive Security Project
+          <p className="mt-2">
+            Results support investigation and do not guarantee that a URL is
+            safe.
+          </p>
         </footer>
       </div>
     </main>
