@@ -1,36 +1,156 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Phishing URL Analyzer
 
-## Getting Started
+A defensive cybersecurity application that inspects suspicious URLs without opening them. It combines local structural analysis with existing VirusTotal threat-intelligence reports to produce a clear risk assessment.
 
-First, run the development server:
+Built by **Fayyad Dahweesh** as a practical cybersecurity portfolio project.
+
+## Features
+
+- Static URL inspection without visiting the destination
+- Automatic URL normalization and domain extraction
+- Risk score from 0 to 100
+- Low Risk, Suspicious, and High Risk classifications
+- HTTPS verification
+- IP-address detection
+- Suspicious keyword detection
+- URL-shortener detection
+- Punycode and unusual subdomain detection
+- Live VirusTotal reputation lookup
+- Security-engine verdict statistics
+- Community reputation and URL categories
+- Responsive SOC-inspired interface
+- Server-side API-key protection
+
+## Technology Stack
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- VirusTotal API v3
+- ESLint
+
+## How It Works
+
+1. The user submits a URL.
+2. The application normalizes and validates the input.
+3. A local engine checks structural phishing indicators.
+4. A server-side API route creates the VirusTotal URL identifier.
+5. The route retrieves the existing VirusTotal report.
+6. Local and external intelligence are combined into a risk score.
+7. The interface displays the findings and engine statistics.
+
+The application does not navigate to the submitted destination.
+
+## Risk Indicators
+
+The local engine evaluates indicators such as:
+
+- Missing HTTPS
+- Raw IP address instead of a domain
+- `@` symbols that may obscure the destination
+- Punycode domains
+- Excessive URL length
+- Suspicious words such as `login`, `verify`, and `password`
+- Excessive subdomains
+- Known URL-shortening services
+
+VirusTotal detections can increase the final score when security engines classify the URL as suspicious or malicious.
+
+## Local Setup
+
+### Requirements
+
+- Node.js 20.9 or newer
+- npm
+- A free VirusTotal Community API key
+
+### Installation
+
+Clone the repository and enter the project directory:
+
+```bash
+git clone YOUR_REPOSITORY_URL
+cd phishing-url-analyzer
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create a `.env.local` file in the project root:
+
+```env
+VIRUSTOTAL_API_KEY=your_private_api_key
+```
+
+Never expose the API key in client-side code or commit `.env.local`.
+
+Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Testing
 
-## Learn More
+Safe documentation test:
 
-To learn more about Next.js, take a look at the following resources:
+```text
+example.com
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Expected result: Low Risk with no malicious VirusTotal detections.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Controlled phishing-warning test:
 
-## Deploy on Vercel
+```text
+https://testsafebrowsing.appspot.com/s/phishing.html
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+This is an official Safe Browsing test URL. Paste it into the analyzer; do not navigate to it directly.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Quality checks:
+
+```bash
+npm run lint
+npm run build
+```
+
+## Security and Privacy
+
+- The VirusTotal API key is stored in a server-only environment variable.
+- The key is never returned to the browser.
+- `.env.local` is excluded from Git.
+- Only HTTP and HTTPS URLs are accepted.
+- URLs containing embedded credentials are rejected.
+- Input length is limited.
+- The application retrieves existing VirusTotal reports and does not automatically submit new URLs for scanning.
+
+Do not analyze private reset links, internal company URLs, authentication tokens, or confidential addresses using public threat-intelligence services.
+
+## Limitations
+
+- A Low Risk result does not guarantee that a URL is safe.
+- An undetected result means an engine has no verdict, not that the URL is harmless.
+- VirusTotal Community API quotas apply.
+- Previously unseen URLs may not have an existing VirusTotal report.
+- Static indicators can produce false positives or false negatives.
+
+## Disclaimer
+
+This project is intended for defensive security education and portfolio demonstration. Results should support—not replace—professional investigation and security controls.
+
+## Author
+
+**Fayyad Dahweesh**
+
+Technical Support Specialist | IT Support Professional | Aspiring Cybersecurity Analyst
